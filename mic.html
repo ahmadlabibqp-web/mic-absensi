@@ -1,63 +1,130 @@
 <!doctype html>
 <html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Mic Telat Sholat</title>
 <style>
-body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#f1f5f9;color:#0f172a}
-h1{font-size:20px;margin:0 0 8px}
-.card{background:#fff;border-radius:16px;padding:16px;box-shadow:0 1px 3px #0002;margin-bottom:12px}
-button{font-size:18px;border:0;border-radius:14px;padding:14px 18px;width:100%;margin-top:8px;color:#fff}
-#mic{background:#e11d48;font-size:22px;padding:22px}#mic.on{background:#1e293b}
+body{font-family:system-ui,sans-serif;margin:0;padding:14px;background:#f1f5f9;color:#0f172a}
+h1{font-size:19px;margin:0 0 8px}
+.card{background:#fff;border-radius:16px;padding:14px;box-shadow:0 1px 3px #0002;margin-bottom:12px}
+button{font-size:17px;border:0;border-radius:14px;padding:13px 16px;color:#fff;cursor:pointer}
+.full{width:100%;margin-top:8px}
+#mic{background:#e11d48;font-size:21px;padding:20px}#mic.on{background:#1e293b}
 #send{background:#4f46e5}#back{background:#64748b}
-#status{margin:8px 0;font-size:15px}#interim{color:#64748b;min-height:1.2em}
-textarea{width:100%;box-sizing:border-box;font-size:17px;min-height:120px;border-radius:12px;border:1px solid #cbd5e1;padding:10px}
-.chips span{display:inline-block;background:#e0e7ff;border-radius:999px;padding:4px 10px;margin:3px;font-size:14px}
+#status{margin:8px 0;font-size:15px}#interim{color:#64748b;min-height:1.2em;font-style:italic}
+.row{display:flex;gap:6px}.row input{flex:1;min-width:0;font-size:17px;padding:10px;border-radius:12px;border:1px solid #cbd5e1}
+.row button{background:#0f766e;padding:10px 14px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:#dcfce7;border:1px solid #86efac;border-radius:999px;padding:6px 6px 6px 12px;margin:4px;font-size:15px}
+.chip small{color:#475569}.chip b{font-weight:600}
+.chip button{background:#ef4444;padding:2px 9px;font-size:14px;border-radius:999px}
+.amb{background:#fef9c3;border:1px solid #fde047;border-radius:12px;padding:8px;margin:6px 0;font-size:15px}
+.amb button{background:#fff;color:#3730a3;border:1px solid #a5b4fc;padding:6px 10px;margin:3px;font-size:15px}
+.amb .x{color:#64748b;border-color:#cbd5e1}
+.miss{color:#b45309;font-size:14px;margin:3px 0}
+#count{font-weight:700}
 </style></head><body>
 <h1>🎤 Sebut nama santri yang telat</h1>
 <div class="card">
-  <div id="prayer"></div>
-  <button id="mic">🎤 Mulai Mic</button>
-  <div id="status">Tekan Mulai Mic, izinkan mikrofon, lalu sebut nama. Pisahkan dengan "dan" atau jeda.</div>
+  <div id="prayer"></div><div id="info" style="font-size:14px;color:#475569"></div>
+  <button id="mic" class="full">🎤 Mulai Mic</button>
+  <div id="status">Tekan Mulai Mic, izinkan mikrofon, lalu sebut nama. Pisahkan dengan "dan", "sama", "terus" atau jeda.</div>
   <div id="interim"></div>
+  <div class="row"><input id="typed" placeholder="atau ketik nama, pisah koma" enterkeyhint="done"><button id="addbtn">Tambah</button></div>
 </div>
 <div class="card">
-  <b>Hasil (bisa diedit):</b>
-  <textarea id="out" placeholder="nama-nama akan muncul di sini"></textarea>
-  <div class="chips" id="hint"></div>
-  <button id="send">✅ Kirim ke Absensi</button>
-  <button id="back">Kembali tanpa kirim</button>
+  <div>Terpilih: <span id="count">0</span> santri</div>
+  <div id="amb"></div>
+  <div id="chips"></div>
+  <div id="miss"></div>
+  <button id="send" class="full">✅ Kirim ke Absensi</button>
+  <button id="back" class="full">Kembali tanpa kirim</button>
 </div>
 <script>
+(function(){
 const P={S:'Subuh',D:'Dzuhur',A:'Ashar',M:'Maghrib',I:'Isya'};
+const VP={S:['subuh','shubuh','subu'],D:['dzuhur','zuhur','duhur','dhuhur','lohor'],A:['ashar','asar','azar'],M:['maghrib','magrib','mahrib'],I:['isya','isa','isyak']};
+const STOP=['nama','santri','telat','terlambat','yang','sholat','shalat','salat','waktu','juga'];
 const h=new URLSearchParams(location.hash.slice(1));
-const ret=h.get('ret')||'';const prayer=h.get('prayer')||'';
+// hapus data dari alamat (tidak tersimpan di riwayat)
+try{history.replaceState(null,'',location.pathname);}catch(e){}
+const ret=h.get('ret')||'';let prayer=h.get('prayer')||'';
 const okRet=/^https:\/\/script\.google\.com\/(a\/[^/]+\/)?macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(ret);
-document.getElementById('prayer').textContent=prayer&&P[prayer]?'Waktu sholat: '+P[prayer]+' (bisa diganti dengan menyebut "subuh", "ashar", dll.)':'';
-const names=(h.get('names')||'').split('|').filter(Boolean);
-const st=document.getElementById('status'),out=document.getElementById('out'),btn=document.getElementById('mic'),inter=document.getElementById('interim');
+const $=id=>document.getElementById(id);
+function norm(t){return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();}
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+// data santri: "id~nama~kelas" per baris
+const S=(h.get('data')||'').split('\n').map(l=>l.split('~')).filter(a=>a[0]&&a[1])
+  .map(a=>{const n=norm(a[1]);return{id:a[0],name:a[1],cls:a[2]||'',n,toks:n.split(' ')};});
+const picked=new Map();
+function showPrayer(){$('prayer').textContent=prayer&&P[prayer]?'Waktu sholat: '+P[prayer]+' (ganti dengan menyebut "subuh", "ashar", dll.)':'';}
+showPrayer();
+$('info').textContent=S.length?S.length+' santri dimuat (hanya di HP ini, tidak disimpan).':'⚠️ Daftar santri tidak terbawa. Buka halaman ini dari tombol mic di web absensi.';
+function lev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let p=new Array(n+1);for(let j=0;j<=n;j++)p[j]=j;for(let i=1;i<=m;i++){const c=[i];const ai=a.charCodeAt(i-1);for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(ai===b.charCodeAt(j-1)?0:1));p=c;}return p[n];}
+function sim(a,b){const L=Math.max(a.length,b.length);return L?1-lev(a,b)/L:0;}
+function score(sp,toks,s){let sum=0;for(const t of toks){let best=0;for(const n of s.toks){if(n.indexOf(t)===0&&t.length>=3)best=Math.max(best,0.9);if(best<1&&Math.abs(n.length-t.length)<=Math.max(n.length,t.length)*0.5)best=Math.max(best,sim(t,n));}sum+=best;}
+  const ts=sum/toks.length;return ts>=0.95?ts:Math.max(ts,sim(sp,s.n));}
+function render(){
+  $('count').textContent=picked.size;
+  $('chips').innerHTML=[...picked.values()].map(s=>'<span class="chip"><b>'+esc(s.name)+'</b><small>'+esc(s.cls)+'</small><button data-del="'+esc(s.id)+'">✕</button></span>').join('');
+}
+$('chips').onclick=e=>{const id=e.target.getAttribute('data-del');if(id){picked.delete(id);render();}};
+function pick(s){picked.set(s.id,s);render();}
+function match(sp){
+  const toks=sp.split(' ');
+  const r=[];for(const s of S){const sc=score(sp,toks,s);if(sc>=0.6)r.push({s,sc});}
+  r.sort((a,b)=>b.sc-a.sc);
+  if(!r.length){$('miss').insertAdjacentHTML('afterbegin','<div class="miss">❓ "'+esc(sp)+'" tidak ditemukan</div>');return;}
+  const top=r[0],close=r.filter(x=>x.sc>=top.sc-0.08);
+  if(top.sc>=0.8&&close.length===1){pick(top.s);return;}
+  const d=document.createElement('div');d.className='amb';d.innerHTML='🤔 "'+esc(sp)+'" maksudnya: ';
+  r.slice(0,5).forEach(x=>{const b=document.createElement('button');b.textContent=x.s.name+' ('+x.s.cls+')';b.onclick=()=>{pick(x.s);d.remove();};d.appendChild(b);});
+  const x=document.createElement('button');x.className='x';x.textContent='Bukan semua';x.onclick=()=>d.remove();d.appendChild(x);
+  $('amb').prepend(d);
+}
+function handle(text){
+  let t=norm(text);if(!t)return;
+  if(/\b(berhenti|stop)\b/.test(t)){stop();$('status').textContent='Mic mati.';t=t.replace(/\b(berhenti|stop)\b/g,' ');}
+  for(const c in VP)for(const w of VP[c]){const re=new RegExp('\\b'+w+'\\b','g');if(re.test(t)){prayer=c;showPrayer();t=t.replace(re,' ');}}
+  t.split(/\bdan\b|,|\bterus\b|\blalu\b|\bsama\b|\bsimpan\b/).map(p=>p.split(' ').filter(w=>w&&STOP.indexOf(w)<0).join(' ').trim()).filter(Boolean).forEach(match);
+}
+// live: tampilkan perkiraan nama saat masih bicara
+let lastInterim='';
+function liveHint(txt){
+  const t=norm(txt);if(t===lastInterim)return;lastInterim=t;
+  const parts=t.split(/\bdan\b|,|\bterus\b|\blalu\b|\bsama\b/).map(p=>p.split(' ').filter(w=>w&&STOP.indexOf(w)<0).join(' ').trim()).filter(Boolean);
+  const last=parts[parts.length-1];let hint='';
+  if(last&&S.length){const toks=last.split(' ');let best=null,bs=0;for(const s of S){const sc=score(last,toks,s);if(sc>bs){bs=sc;best=s;}}if(best&&bs>=0.6)hint=' → '+best.name+' ('+best.cls+')';}
+  $('interim').textContent=txt+hint;
+}
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null,on=false;
-function add(t){t=t.trim();if(!t)return;out.value=(out.value?out.value+'\n':'')+t;}
-function stop(){on=false;btn.classList.remove('on');btn.textContent='🎤 Mulai Mic';if(rec)try{rec.stop()}catch(e){}}
+const btn=$('mic'),st=$('status');
+function stop(){on=false;btn.classList.remove('on');btn.textContent='🎤 Mulai Mic';if(rec)try{rec.stop()}catch(e){}$('interim').textContent='';}
 btn.onclick=function(){
   if(on){stop();st.textContent='Mic mati.';return;}
   if(!SR){st.textContent='⚠️ Browser ini tidak mendukung input suara. Buka halaman ini di Google Chrome.';return;}
   rec=new SR();rec.lang='id-ID';rec.continuous=true;rec.interimResults=true;
-  rec.onresult=function(e){let i2='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)add(r[0].transcript);else i2+=r[0].transcript;}inter.textContent=i2;};
+  rec.onresult=function(e){let i2='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal){handle(r[0].transcript);lastInterim='';}else i2+=r[0].transcript;}if(i2)liveHint(i2);else $('interim').textContent='';};
   rec.onerror=function(e){
     if(e.error==='not-allowed'||e.error==='service-not-allowed'){stop();st.textContent='⚠️ Izin mikrofon ditolak. Ketuk ikon gembok di samping alamat → Izin → Mikrofon → Izinkan, lalu tekan Mulai Mic lagi.';}
     else if(e.error==='network'){stop();st.textContent='⚠️ Tidak ada internet untuk pengenalan suara.';}
-    else if(e.error!=='no-speech'){st.textContent='⚠️ Error suara: '+e.error;}
+    else if(e.error!=='no-speech'&&e.error!=='aborted'){st.textContent='⚠️ Error suara: '+e.error;}
   };
   rec.onend=function(){if(on){try{rec.start()}catch(e){}}};
   try{rec.start();}catch(e){st.textContent='⚠️ Gagal menyalakan mic: '+e.message;return;}
   on=true;btn.classList.add('on');btn.textContent='⏹ Stop Mic';st.textContent='🎙️ Mendengarkan... sebut nama santri';
 };
-function go(withText){
+function addTyped(){const v=$('typed').value;if(v.trim()){handle(v);$('typed').value='';}}
+$('addbtn').onclick=addTyped;$('typed').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addTyped();}});
+function go(send){
   stop();
   if(!okRet){st.textContent='⚠️ Alamat web absensi tidak valid. Buka halaman ini dari tombol mic di web absensi.';return;}
-  let u=ret;if(withText&&out.value.trim()){u+='?voice='+encodeURIComponent(out.value.trim().slice(0,1800))+'&prayer='+encodeURIComponent(prayer);}
+  let u=ret;
+  if(send){
+    if(!picked.size){st.textContent='⚠️ Belum ada santri terpilih.';return;}
+    u+='?ids='+encodeURIComponent([...picked.keys()].join(','))+'&prayer='+encodeURIComponent(prayer);
+  }
   location.href=u;
 }
-document.getElementById('send').onclick=function(){go(true)};
-document.getElementById('back').onclick=function(){go(false)};
+$('send').onclick=()=>go(true);$('back').onclick=()=>go(false);
+})();
 </script></body></html>
